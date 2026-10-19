@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>마니또 뽑기</title>
+<style>
+:root{--bg:#fff8f1;--card:#fff;--tx:#2b2320;--mu:#8a7b72;--pr:#e8590c;--bd:#f0e2d6;--ok:#2f9e44;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1816;--card:#292321;--tx:#f5ece6;--mu:#a89a91;--pr:#ff8a3d;--bd:#3b322e;--ok:#51cf66}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;line-height:1.5}
+main{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:24px;margin:8px 0 4px}
+.sub{color:var(--mu);margin:0 0 20px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px;margin-bottom:16px}
+input{width:100%;padding:12px;border:1px solid var(--bd);border-radius:10px;font-size:16px;background:var(--bg);color:var(--tx);margin-bottom:8px}
+button{border:0;border-radius:10px;padding:12px 16px;font-size:15px;font-weight:600;cursor:pointer;background:var(--pr);color:#fff}
+button.ghost{background:transparent;color:var(--pr);border:1px solid var(--pr)}
+button.full{width:100%}
+.row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--bd)}
+.row:last-child{border:0}
+.row .nm{flex:1;font-weight:600}
+.row .tg{color:var(--pr);font-weight:700}
+.row button{padding:8px 12px;font-size:13px}
+.msg{color:#e03131;font-size:14px;min-height:20px;margin:0 0 8px}
+.big{text-align:center;font-size:30px;font-weight:800;color:var(--pr);margin:16px 0}
+.note{font-size:13px;color:var(--mu)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>🎁 마니또 뽑기</h1>
+<p class="sub" id="sub"></p>
+<div id="app"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s),app=$('#app'),sub=$('#sub');
+const te=new TextEncoder(),td=new TextDecoder();
+const b64=u=>btoa(String.fromCharCode(...u)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const ub=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+async function aesEnc(key,text){const iv=crypto.getRandomValues(new Uint8Array(12));const k=await crypto.subtle.importKey('raw',key,'AES-GCM',false,['encrypt']);const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,te.encode(text)));return b64(new Uint8Array([...iv,...ct]))}
+async function aesDec(key,s){const a=ub(s);const k=await crypto.subtle.importKey('raw',key,'AES-GCM',false,['decrypt']);return td.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:a.slice(0,12)},k,a.slice(12)))}
+async function pwKey(pw,salt){const m=await crypto.subtle.importKey('raw',te.encode(pw),'PBKDF2',false,['deriveBits']);return new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:150000,hash:'SHA-256'},m,256))}
+function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
+function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+/* ---------- 주최자 화면 ---------- */
+function renderHost(){
+  sub.textContent='주최자 화면 · 6명의 이름을 입력하고 매칭하세요';
+  app.innerHTML=`<div class="card"><div id="names"></div>
+  <p class="msg" id="err"></p><button class="full" id="go">매칭하기</button></div><div id="res"></div>`;
+  $('#names').innerHTML=[...Array(6)].map((_,i)=>`<input placeholder="참가자 ${i+1} 이름" maxlength="12">`).join('');
+  $('#go').onclick=match;
+}
+function derange(n){let p;do{p=[...Array(n).keys()];for(let i=n-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[p[i],p[j]]=[p[j],p[i]]}}while(p.some((v,i)=>v===i));return p}
+async function match(){
+  const names=[...document.querySelectorAll('#names input')].map(i=>i.value.trim());
+  const err=$('#err');
+  if(names.some(n=>!n)){err.textContent='6명의 이름을 모두 입력해 주세요.';return}
+  if(new Set(names).size<6){err.textContent='이름이 중복되었습니다.';return}
+  err.textContent='';
+  const p=derange(6),base=location.href.split('#')[0];
+  const rows=[];
+  for(let i=0;i<6;i++){
+    const key=crypto.getRandomValues(new Uint8Array(16));
+    const d=await aesEnc(key,JSON.stringify({n:names[i],t:names[p[i]]}));
+    rows.push({n:names[i],t:names[p[i]],link:`${base}#d=${d}&k=${b64(key)}`});
+  }
+  $('#res').innerHTML=`<div class="card"><b>매칭 완료!</b>
+  <p class="note">각자에게 본인 링크만 전달하세요. 이 화면을 닫으면 결과가 사라지니 링크를 먼저 모두 복사해 두세요.</p>
+  <div id="rows"></div>
+  <button class="ghost full" id="tg" style="margin-top:12px">주최자용 전체 결과 보기</button></div>`;
+  $('#rows').innerHTML=rows.map((r,i)=>`<div class="row"><span class="nm">${esc(r.n)}</span><span class="tg hide">→ ${esc(r.t)}</span><button data-i="${i}">링크 복사</button></div>`).join('');
+  document.querySelectorAll('#rows button').forEach(b=>b.onclick=()=>copy(rows[b.dataset.i].link,b));
+  $('#tg').onclick=()=>{const h=document.querySelectorAll('.tg');const show=h[0].classList.contains('hide');h.forEach(e=>e.classList.toggle('hide',!show));$('#tg').textContent=show?'결과 숨기기':'주최자용 전체 결과 보기'};
+  $('#go').textContent='다시 매칭하기';
+}
+function copy(text,btn){
+  const done=()=>{const o=btn.textContent;btn.textContent='복사됨 ✓';setTimeout(()=>btn.textContent=o,1500)};
+  const fb=()=>{const t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){prompt('링크를 복사하세요',text)}t.remove()};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done,fb);else fb();
+}
+
+/* ---------- 참가자 화면 ---------- */
+async function renderPlayer(q){
+  const d=q.get('d'),key=ub(q.get('k')),id='manito:'+d.slice(0,16);
+  let info;
+  try{info=JSON.parse(await aesDec(key,d))}catch(e){sub.textContent='';app.innerHTML='<div class="card">유효하지 않은 링크입니다.</div>';return}
+  sub.textContent=`${info.n}님의 마니또 확인 페이지`;
+  const saved=store(id);
+  if(!saved){
+    app.innerHTML=`<div class="card"><b>비밀번호를 설정하세요</b>
+    <p class="note">이 비밀번호를 입력해야만 마니또를 확인할 수 있어요. 다른 사람은 볼 수 없습니다.</p>
+    <input type="password" id="p1" placeholder="비밀번호 (4자 이상)"><input type="password" id="p2" placeholder="비밀번호 확인">
+    <p class="msg" id="err"></p><button class="full" id="ok">저장하고 확인하기</button></div>`;
+    $('#ok').onclick=async()=>{
+      const a=$('#p1').value,b=$('#p2').value;
+      if(a.length<4){$('#err').textContent='비밀번호는 4자 이상이어야 합니다.';return}
+      if(a!==b){$('#err').textContent='비밀번호가 일치하지 않습니다.';return}
+      const salt=crypto.getRandomValues(new Uint8Array(16));
+      const c=await aesEnc(await pwKey(a,salt),JSON.stringify(info));
+      store(id,JSON.stringify({s:b64(salt),c}));
+      showResult(info);
+    };
+  }else{
+    app.innerHTML=`<div class="card"><b>비밀번호를 입력하세요</b><br><br>
+    <input type="password" id="p1" placeholder="비밀번호"><p class="msg" id="err"></p>
+    <button class="full" id="ok">확인</button></div>`;
+    const go=async()=>{
+      try{const o=JSON.parse(saved);const r=JSON.parse(await aesDec(await pwKey($('#p1').value,ub(o.s)),o.c));showResult(r)}
+      catch(e){$('#err').textContent='비밀번호가 틀렸습니다.'}
+    };
+    $('#ok').onclick=go;$('#p1').onkeydown=e=>{if(e.key==='Enter')go()};
+  }
+}
+function showResult(info){
+  app.innerHTML=`<div class="card"><p style="text-align:center;margin:0">${esc(info.n)}님의 마니또 대상은</p>
+  <div class="big">🎉 ${esc(info.t)}</div>
+  <p class="note" style="text-align:center">몰래 챙겨주세요. 비밀은 끝까지! 🤫</p>
+  <button class="ghost full" onclick="location.reload()">잠그기</button></div>`;
+}
+
+/* ---------- 시작 ---------- */
+function route(){
+  const q=new URLSearchParams(location.hash.slice(1));
+  if(q.get('d')&&q.get('k'))renderPlayer(q);else renderHost();
+}
+window.addEventListener('hashchange',route);
+route();
+</script>
+</body>
+</html>
